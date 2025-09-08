@@ -75,14 +75,14 @@ class DynamicMCPServer:
         for tool_file in tool_files:
             try:
                 # Get the number of tools before importing
-                tools_before = len(self.mcp._tool_manager._tools)
+                tools_before = len(mcp._tool_manager._tools)
 
                 # Simply import the module - tools auto-register via @mcp.tool()
                 # decorator
                 tool_name = tool_file.stem
                 if self._import_tool_module(tool_file, tool_name):
                     # Check if any tools were actually registered
-                    tools_after = len(self.mcp._tool_manager._tools)
+                    tools_after = len(mcp._tool_manager._tools)
                     if tools_after > tools_before:
                         self.loaded_tools.append(tool_name)
                         loaded_count += 1
@@ -143,7 +143,7 @@ class DynamicMCPServer:
         """Get tools synchronously for testing purposes."""
         # This is a simplified version for testing - in real usage, use get_tools()
         # async
-        return self.mcp._tool_manager._tools
+        return mcp._tool_manager._tools
 
     def run(self, transport_mode: str = "stdio", host: str = "localhost", port: int = 3000) -> None:
         """Run the FastMCP server.
