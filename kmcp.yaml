@@ -1,0 +1,23 @@
+name: multi-tenant-github-mcp
+framework: fastmcp-python
+version: 0.1.0
+description: A remote MCP server that can call GH on behalf of any user
+author: ceposta
+email: christian@solo.io
+secrets:
+    local:
+        enabled: false
+        provider: env
+        file: .env.local
+    production:
+        enabled: false
+        provider: kubernetes
+        secretName: multi-tenant-github-mcp-secrets-production
+        namespace: default
+    staging:
+        enabled: false
+        provider: kubernetes
+        secretName: multi-tenant-github-mcp-secrets-staging
+        namespace: default
+created_at: 2025-09-08T13:03:37.977091-04:00
+updated_at: 2025-09-08T13:03:38.03836-04:00
