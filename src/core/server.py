@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from .utils import load_config
 
@@ -38,6 +38,7 @@ class DynamicMCPServer:
         self._load_local_env()
 
         # Update global FastMCP instance
+        global mcp
         mcp = FastMCP(name=self.name)
         self.mcp = mcp
 
@@ -120,6 +121,11 @@ class DynamicMCPServer:
             True if module was imported successfully
         """
         try:
+            # Ensure src directory is in Python path for imports
+            src_dir = tool_file.parent.parent
+            if str(src_dir) not in sys.path:
+                sys.path.insert(0, str(src_dir))
+
             # Load the module
             spec = importlib.util.spec_from_file_location(tool_name, tool_file)
             if spec is None or spec.loader is None:
@@ -130,6 +136,9 @@ class DynamicMCPServer:
             # Add to sys.modules so it can be imported by other modules
             sys.modules[f"tools.{tool_name}"] = module
 
+            # Set the mcp instance in the module's namespace so tools can access it
+            module.mcp = self.mcp
+            
             # Execute the module - this will trigger @mcp.tool() decorators
             spec.loader.exec_module(module)
 
