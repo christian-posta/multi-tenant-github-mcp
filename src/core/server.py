@@ -131,8 +131,8 @@ class DynamicMCPServer:
                 <form method="POST" action="/github-token-form">
                     <input type="hidden" name="elicitation" value="{elicitation_id}" />
                     <label>GitHub Personal Access Token:<br>
-                        <input type="text" name="githubToken" required 
-                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" 
+                        <input type="password" name="githubToken" required 
+                               placeholder="Enter your GitHub token" 
                                pattern="^(ghp_|gho_|ghu_|ghs_|ghr_).*"
                                title="GitHub token should start with ghp_, gho_, ghu_, ghs_, or ghr_" />
                     </label>
