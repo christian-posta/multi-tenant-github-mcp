@@ -31,28 +31,34 @@ class Config:
     TIMEOUT = 30
     
     @classmethod
-    def get_access_token(cls, token: Optional[str] = None) -> str:
-        """Get OAuth access token from parameter, environment variable, or token.jwt file."""
+    def get_access_token(cls, token: Optional[str] = None, allow_file: bool = False) -> str:
+        """Get OAuth access token from parameter, environment variable, or optionally from file.
+        
+        Args:
+            token: Direct token parameter (highest priority)
+            allow_file: Whether to check for access.token file
+        """
         if token:
             return token
         
         if cls.GITHUB_OAUTH_TOKEN and cls.GITHUB_OAUTH_TOKEN != "your_oauth_access_token_here":
             return cls.GITHUB_OAUTH_TOKEN
         
-        # Check for access.token file
-        token_file = "access.token"
-        if os.path.exists(token_file):
-            try:
-                with open(token_file, 'r') as f:
-                    file_token = f.read().strip()
-                    if file_token and file_token.startswith('gho_'):
-                        return file_token
-            except (IOError, OSError):
-                pass  # Continue to error message
+        # Only check for access.token file if explicitly allowed
+        if allow_file:
+            token_file = "access.token"
+            if os.path.exists(token_file):
+                try:
+                    with open(token_file, 'r') as f:
+                        file_token = f.read().strip()
+                        if file_token and file_token.startswith(('gho_', 'ghp_')):
+                            return file_token
+                except (IOError, OSError):
+                    pass  # Continue to error message
             
         raise ValueError(
             "No OAuth access token provided. Set GITHUB_OAUTH_TOKEN environment variable, "
-            "pass token as parameter, or ensure access.token file exists."
+            "pass token as parameter" + (", or ensure access.token file exists" if allow_file else "") + "."
         )
     
     @classmethod

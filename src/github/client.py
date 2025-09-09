@@ -17,10 +17,10 @@ class GitHubAPIError(Exception):
 class GitHubClient:
     """OAuth-enabled GitHub API client."""
     
-    def __init__(self, access_token: Optional[str] = None, api_url: Optional[str] = None, insecure: Optional[bool] = None):
+    def __init__(self, access_token: Optional[str] = None, api_url: Optional[str] = None, insecure: Optional[bool] = None, allow_file: bool = False):
         """Initialize GitHub client with access token, custom API URL, and insecure mode."""
         self.insecure = insecure if insecure is not None else Config.INSECURE
-        self.access_token = Config.get_access_token(access_token) if not self.insecure else None
+        self.access_token = Config.get_access_token(access_token, allow_file) if not self.insecure else None
         self.api_url = api_url or Config.GITHUB_API_BASE_URL
         self.session = self._create_session()
         

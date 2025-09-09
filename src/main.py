@@ -11,11 +11,23 @@ Usage Examples:
   # HTTP mode with MCP protocol over HTTP
   python src/main.py --transport http
   
+  # Streamable HTTP mode (enables custom routes + MCP protocol)
+  python src/main.py --transport streamable-http
+  
+  # Enable reading GitHub token from access.token file (CLI flag)
+  python src/main.py --access-token-file
+  
+  # Enable reading GitHub token from access.token file (env var)
+  ACCESS_TOKEN_FILE_ENABLED=true python src/main.py
+  
+  # Streamable HTTP with file-based token support
+  python src/main.py --transport streamable-http --access-token-file
+  
   # Custom host/port
   python src/main.py --transport http --host localhost --port 8080
   
   # Environment variable mode
-  MCP_TRANSPORT_MODE=http python src/main.py
+  MCP_TRANSPORT_MODE=streamable-http ACCESS_TOKEN_FILE_ENABLED=true python src/main.py
 """
 
 import argparse
@@ -36,9 +48,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="multi-tenant-github-mcp MCP Server")
     parser.add_argument(
         "--transport",
-        choices=["stdio", "http"],
+        choices=["stdio", "http", "streamable-http"],
         default="stdio",
-        help="Transport mode: stdio, or http"
+        help="Transport mode: stdio, http, or streamable-http"
     )
     parser.add_argument(
         "--host",
@@ -51,11 +63,19 @@ def main() -> None:
         default=int(os.getenv("PORT", "3000")),
         help="Port to bind to in HTTP mode (default: 3000)"
     )
+    parser.add_argument(
+        "--access-token-file",
+        action="store_true",
+        help="Enable reading GitHub token from access.token file (can also be set via ACCESS_TOKEN_FILE_ENABLED env var)"
+    )
 
     args = parser.parse_args()
 
     # Check environment variable for transport mode
     transport_mode = os.getenv("MCP_TRANSPORT_MODE", args.transport)
+    
+    # Check environment variable for access token file setting
+    access_token_file_enabled = args.access_token_file or os.getenv("ACCESS_TOKEN_FILE_ENABLED", "false").lower() in ("true", "1", "yes")
 
     # Configure logging
     logging.basicConfig(
@@ -70,14 +90,15 @@ def main() -> None:
         # Create server with dynamic tool loading
         server = DynamicMCPServer(
             name="multi-tenant-github-mcp",
-            tools_dir="src/tools"
+            tools_dir="src/tools",
+            access_token_file_enabled=access_token_file_enabled
         )
 
         # Load tools and start server
         server.load_tools()
 
-        if transport_mode not in ["http", "stdio"]:
-            raise ValueError(f"Invalid transport mode: {transport_mode}. Must be one of: http, or stdio")
+        if transport_mode not in ["http", "stdio", "streamable-http"]:
+            raise ValueError(f"Invalid transport mode: {transport_mode}. Must be one of: http, stdio, or streamable-http")
         
         server.run(transport_mode=transport_mode, host=args.host, port=args.port)
 

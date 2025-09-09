@@ -12,8 +12,10 @@ from typing import Any
 
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from mcp.server.session import ServerSession
 
 from .utils import load_config
+from .elicitation import elicitation_manager
 
 # Global FastMCP instance for tools to import
 mcp: FastMCP = FastMCP(name="Dynamic Server")
@@ -22,16 +24,18 @@ mcp: FastMCP = FastMCP(name="Dynamic Server")
 class DynamicMCPServer:
     """MCP server with dynamic tool loading capabilities."""
 
-    def __init__(self, name: str, tools_dir: str = "src/tools"):
+    def __init__(self, name: str, tools_dir: str = "src/tools", access_token_file_enabled: bool = False):
         """Initialize the dynamic MCP server.
 
         Args:
             name: Server name
             tools_dir: Directory containing tool files
+            access_token_file_enabled: Whether to allow reading tokens from access.token file
         """
         global mcp
         self.name = name
         self.tools_dir = Path(tools_dir)
+        self.access_token_file_enabled = access_token_file_enabled
         self.config = self._load_config()
 
         # Load local environment variables if configured
@@ -41,9 +45,15 @@ class DynamicMCPServer:
         global mcp
         mcp = FastMCP(name=self.name)
         self.mcp = mcp
+        
+        # Store reference to server instance for tools to access
+        mcp._server_instance = self
 
         # Track loaded tools
         self.loaded_tools: list[str] = []
+        
+        # Add GitHub token collection routes
+        self._add_github_token_routes()
 
     def _load_config(self) -> dict[str, Any]:
         """Load configuration from kmcp.yaml."""
@@ -55,6 +65,174 @@ class DynamicMCPServer:
         # It does not fail if the file is not found.
         if load_dotenv(override=True):
             logging.info("Loaded environment variables from .env file")
+    
+    def _add_github_token_routes(self):
+        """Add GitHub token collection routes to the FastMCP server."""
+        
+        @self.mcp.custom_route("/github-token-form", methods=["GET"])
+        async def github_token_form_get(request):
+            """Serve the GitHub token collection form."""
+            from fastapi.responses import HTMLResponse
+            
+            elicitation_id = request.query_params.get("id")
+            
+            if not elicitation_id:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail="Missing elicitation ID")
+            
+            # Update progress
+            elicitation_manager.update_elicitation_progress(
+                elicitation_id, 
+                "Waiting for you to submit your GitHub token..."
+            )
+            
+            # Serve HTML form
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>GitHub Token Required</title>
+                <style>
+                    body {{ font-family: sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }}
+                    input[type="text"] {{ width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }}
+                    button {{ background: #007bff; color: white; padding: 10px 20px; border: none; cursor: pointer; }}
+                    button:hover {{ background: #0056b3; }}
+                    .info {{ background: #d1ecf1; padding: 15px; margin-bottom: 20px; border-radius: 5px; }}
+                    .instructions {{ background: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px; }}
+                    .warning {{ background: #fff3cd; padding: 10px; margin: 10px 0; border-radius: 5px; }}
+                    ol {{ margin: 10px 0; padding-left: 20px; }}
+                    li {{ margin: 5px 0; }}
+                </style>
+            </head>
+            <body>
+                <h1>GitHub Token Required</h1>
+                <div class="info">
+                    <strong>✓ Secure Token Collection</strong><br>
+                    Your token will be used only for this session and will not be saved.
+                </div>
+                
+                <div class="instructions">
+                    <h3>How to get your GitHub token:</h3>
+                    <ol>
+                        <li>Go to <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings → Personal Access Tokens</a></li>
+                        <li>Click "Generate new token (classic)"</li>
+                        <li>Give it a name like "MCP Server Access"</li>
+                        <li>Select these scopes:
+                            <ul>
+                                <li><strong>repo</strong> (for private repositories)</li>
+                                <li><strong>read:org</strong> (optional, for organization access)</li>
+                            </ul>
+                        </li>
+                        <li>Click "Generate token"</li>
+                        <li>Copy the token (starts with ghp_ or gho_)</li>
+                    </ol>
+                </div>
+                
+                <form method="POST" action="/github-token-form">
+                    <input type="hidden" name="elicitation" value="{elicitation_id}" />
+                    <label>GitHub Personal Access Token:<br>
+                        <input type="text" name="githubToken" required 
+                               placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" 
+                               pattern="^(ghp_|gho_|ghu_|ghs_|ghr_).*"
+                               title="GitHub token should start with ghp_, gho_, ghu_, ghs_, or ghr_" />
+                    </label>
+                    <button type="submit">Submit Token</button>
+                </form>
+                
+                <div class="warning">
+                    <strong>Security Note:</strong> This token will only be used for this session and will not be stored permanently.
+                </div>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
+        
+        @self.mcp.custom_route("/github-token-form", methods=["POST"])
+        async def github_token_form_post(request):
+            """Handle GitHub token form submission."""
+            from fastapi import HTTPException
+            from fastapi.responses import HTMLResponse
+            
+            form_data = await request.form()
+            github_token = form_data.get("githubToken")
+            elicitation = form_data.get("elicitation")
+            
+            print(f"🔍 GitHub token form data received: elicitation={elicitation}")
+            
+            if not github_token or not elicitation:
+                missing = []
+                if not github_token: missing.append("githubToken")
+                if not elicitation: missing.append("elicitation")
+                print(f"❌ Missing parameters: {missing}")
+                raise HTTPException(status_code=400, detail=f"Missing required parameters: {', '.join(missing)}")
+            
+            # Validate token format
+            if not github_token.startswith(('ghp_', 'gho_', 'ghu_', 'ghs_', 'ghr_')):
+                print(f"❌ Invalid token format: {github_token[:10]}...")
+                raise HTTPException(status_code=400, detail="Invalid GitHub token format")
+            
+            # Validate token with GitHub API
+            try:
+                import requests
+                headers = {
+                    "Authorization": f"Bearer {github_token}",
+                    "Accept": "application/vnd.github.v3+json",
+                    "User-Agent": "multi-tenant-github-mcp/0.1.0"
+                }
+                response = requests.get("https://api.github.com/user", headers=headers, timeout=10)
+                
+                if response.status_code == 401:
+                    print(f"❌ Invalid GitHub token: {github_token[:10]}...")
+                    raise HTTPException(status_code=400, detail="Invalid GitHub token - authentication failed")
+                elif not response.ok:
+                    print(f"❌ GitHub API error: {response.status_code}")
+                    raise HTTPException(status_code=400, detail=f"GitHub API error: {response.status_code}")
+                
+                user_data = response.json()
+                print(f"✅ Valid GitHub token for user: {user_data.get('login', 'unknown')}")
+                
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Network error validating token: {e}")
+                raise HTTPException(status_code=400, detail="Failed to validate token with GitHub API")
+            
+            # Complete the elicitation with the validated token
+            print(f"🔍 Completing elicitation: {elicitation}")
+            print(f"🔍 Available elicitations: {list(elicitation_manager.elicitations_map.keys())}")
+            
+            elicitation_manager.complete_elicitation(
+                elicitation, 
+                f"GitHub token validated for user: {user_data.get('login', 'unknown')}",
+                github_token
+            )
+            print(f"✅ Elicitation completed successfully")
+            
+            # Send success response
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Token Validated</title>
+                <style>
+                    body {{ font-family: sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; text-align: center; }}
+                    .success {{ background: #d4edda; color: #155724; padding: 20px; margin: 20px 0; border-radius: 5px; }}
+                    .user-info {{ background: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px; }}
+                </style>
+            </head>
+            <body>
+                <div class="success">
+                    <h1>Token Validated ✓</h1>
+                    <p>Your GitHub token has been successfully validated!</p>
+                </div>
+                <div class="user-info">
+                    <strong>Authenticated as:</strong> {user_data.get('login', 'unknown')}<br>
+                    <strong>Name:</strong> {user_data.get('name', 'Not provided')}<br>
+                    <strong>Email:</strong> {user_data.get('email', 'Not provided')}
+                </div>
+                <p>You can close this window and return to your MCP client.</p>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
 
     def load_tools(self) -> None:
         """Discover and load all tools from the tools directory."""
@@ -158,13 +336,16 @@ class DynamicMCPServer:
         """Run the FastMCP server.
 
         Args:
-            transport_mode: Transport mode - "stdio", or "http"
+            transport_mode: Transport mode - "stdio", "http", or "streamable-http"
             host: Host to bind to in HTTP mode
             port: Port to bind to in HTTP mode
         """
 
         if transport_mode == "http":
             self.mcp.run(transport="http", host=host, port=port, path="/mcp")
+        elif transport_mode == "streamable-http":
+            # Streamable HTTP mode - enables custom routes alongside MCP protocol
+            self.mcp.run("streamable-http")
         elif transport_mode == "stdio":
             # Default to stdio mode
             self.mcp.run()
