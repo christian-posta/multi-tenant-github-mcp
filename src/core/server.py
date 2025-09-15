@@ -233,6 +233,64 @@ class DynamicMCPServer:
             </html>
             """
             return HTMLResponse(content=html_content)
+        
+        # Add elicitation callback endpoint for external portals
+        @self.mcp.custom_route("/elicitation/callback", methods=["POST"])
+        async def elicitation_callback(request):
+            """Handle callbacks from external portals."""
+            from fastapi import HTTPException
+            from fastapi.responses import JSONResponse
+            
+            try:
+                data = await request.json()
+                elicitation_id = data.get("elicitation_id")
+                action = data.get("action")  # "accept", "decline", or "cancel"
+                
+                print(f"🔍 Elicitation callback received: elicitation_id={elicitation_id}, action={action}")
+                
+                if not elicitation_id or not action:
+                    missing = []
+                    if not elicitation_id: missing.append("elicitation_id")
+                    if not action: missing.append("action")
+                    print(f"❌ Missing parameters: {missing}")
+                    raise HTTPException(status_code=400, detail=f"Missing required parameters: {', '.join(missing)}")
+                
+                if action not in ["accept", "decline", "cancel"]:
+                    print(f"❌ Invalid action: {action}")
+                    raise HTTPException(status_code=400, detail="Invalid action. Must be 'accept', 'decline', or 'cancel'")
+                
+                # Update the elicitation state following MCP spec
+                if action == "accept":
+                    elicitation_manager.accept_elicitation(elicitation_id, f"External portal accepted elicitation")
+                    
+                    # In INSECURE mode, also mark the service as authenticated
+                    import os
+                    insecure_mode = os.getenv("INSECURE", "false").lower() in ("true", "1", "yes")
+                    if insecure_mode:
+                        # Get the session ID from the elicitation metadata
+                        metadata = elicitation_manager.get_elicitation(elicitation_id)
+                        if metadata:
+                            elicitation_manager.mark_session_authenticated_for_service(
+                                metadata.session_id, "github", elicitation_id
+                            )
+                            print(f"✅ Service authentication marked for session {metadata.session_id} (INSECURE mode)")
+                elif action == "decline":
+                    elicitation_manager.decline_elicitation(elicitation_id, f"External portal declined elicitation")
+                elif action == "cancel":
+                    elicitation_manager.cancel_elicitation(elicitation_id, f"External portal cancelled elicitation")
+                
+                print(f"✅ Elicitation callback processed: {elicitation_id} -> {action}")
+                
+                return JSONResponse(content={
+                    "status": "success",
+                    "elicitation_id": elicitation_id,
+                    "action": action,
+                    "message": f"Elicitation {action}ed successfully"
+                })
+                
+            except Exception as e:
+                print(f"❌ Error processing elicitation callback: {e}")
+                raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
     def load_tools(self) -> None:
         """Discover and load all tools from the tools directory."""

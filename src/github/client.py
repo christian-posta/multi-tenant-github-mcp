@@ -20,7 +20,12 @@ class GitHubClient:
     def __init__(self, access_token: Optional[str] = None, api_url: Optional[str] = None, insecure: Optional[bool] = None, allow_file: bool = False):
         """Initialize GitHub client with access token, custom API URL, and insecure mode."""
         self.insecure = insecure if insecure is not None else Config.INSECURE
-        self.access_token = Config.get_access_token(access_token, allow_file) if not self.insecure else None
+        if not self.insecure:
+            # SECURE mode: Use Config.get_access_token for token validation
+            self.access_token = Config.get_access_token(access_token, allow_file)
+        else:
+            # INSECURE mode: Use the token directly (could be JWT from request)
+            self.access_token = access_token
         self.api_url = api_url or Config.GITHUB_API_BASE_URL
         self.session = self._create_session()
         
@@ -45,9 +50,12 @@ class GitHubClient:
             "User-Agent": "multi-tenant-github-mcp/0.1.0",
         }
         
-        # Only add Authorization header if not in insecure mode
-        if not self.insecure and self.access_token:
+        # Add Authorization header if we have a token (regardless of insecure mode)
+        if self.access_token:
             headers["Authorization"] = f"Bearer {self.access_token}"
+            print(f"✅ Attaching Authorization header: {self.access_token}")
+        else:
+            print(f"🔓 No Authorization header attached")
         
         session.headers.update(headers)
         
